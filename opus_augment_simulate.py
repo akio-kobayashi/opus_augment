@@ -155,7 +155,7 @@ class OpusAugment(torch.nn.Module):
                 if self.loss_behavior == "plc":
                     # PLC を常に実行
                     out = dec.decode(None)
-                elif self.loss_behavior == "plc" and random.rand() < self.fec_probability:
+                elif self.loss_behavior == "plc" and random.random() < self.fec_probability:
                     # FEC があるなら試す場合
                     out = dec.decode(pkt, decode_fec=True)
                 elif self.loss_behavior == "zero":

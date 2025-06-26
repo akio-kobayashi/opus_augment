@@ -49,7 +49,7 @@ def simulate_gilbert_elliot(
     seq[0] = current_state
 
     for i in range(1, length):
-        r = random.rand()
+        r = random.random()
         if current_state == 1:
             if r < p_gb:
                 current_state = 0
