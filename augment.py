@@ -6,8 +6,11 @@ import numpy as np
 import torch
 import torchaudio
 import yaml
-import pyloudnorm as pyln
-
+try:
+    import pyloudnorm as pyln
+except Exception:
+    pyln = None
+    
 from opus_augment.opus_augment_simulate import OpusAugment
 
     
@@ -97,14 +100,75 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+import torch
+import torchaudio.functional as F
+
+def bs1770_loudness(waveform: torch.Tensor) -> torch.Tensor:
+    """
+    ITU-R BS.1770 K-ウェイティングフィルタを通し、
+    トラック全体の統合ラウドネス（LUFS）を近似計算する。
+
+    waveform: 1D Tensor [T] (mono, float32, -1.0–1.0)
+    戻り値: Tensor(1) 統合ラウドネス [LUFS]
+    """
+    # 係数は BS.1770-4 に準拠
+    # 1) プリフィルタ（高域シェルビング+高域通過）
+    b_prefilt = torch.tensor([1.0, -2.0, 1.0], dtype=waveform.dtype)
+    a_prefilt = torch.tensor([1.0, -1.99004745483398, 0.99007225036621], dtype=waveform.dtype)
+
+    # 2) シェルビングフィルタ
+    b_shelf = torch.tensor([1.53512485958697, -2.69169618940638, 1.19839281085285], dtype=waveform.dtype)
+    a_shelf = torch.tensor([1.0, -1.69065929318241, 0.73248077421585], dtype=waveform.dtype)
+
+    # フィルタ適用（時系列畳み込み）
+    y = F.lfilter(waveform.unsqueeze(0), b_prefilt, a_prefilt).squeeze(0)
+    y = F.lfilter(y.unsqueeze(0), b_shelf, a_shelf).squeeze(0)
+
+    # パワーを計算し平均化
+    power = y.pow(2).mean()
+
+    # 統合ラウドネスの dBFS 換算
+    # 定数 -0.691 は 400 Hz トーンを 60 dB LUFS に合わせる補正項（BS.1770-4 より）
+    return -0.691 + 10.0 * torch.log10(power + 1e-12)
+
+def loudness_normalize_bs1770(
+    waveform: torch.Tensor,
+    sr: int,
+    target_lufs: float
+) -> torch.Tensor:
+    """
+    BS.1770 近似ラウドネスで LUFS 正規化を行う。
+
+    waveform: 2D Tensor [1, T] または 1D Tensor [T]
+    sr は本実装では使用しません（元サンプリングレートを想定）
+    """
+    # 1D に
+    if waveform.dim() == 2 and waveform.shape[0] == 1:
+        x = waveform.squeeze(0)
+    else:
+        x = waveform
+
+    # K-ウェイティング → 統合ラウドネス取得
+    current_lufs = bs1770_loudness(x)
+
+    # ゲイン比
+    gain = 10 ** ((target_lufs - current_lufs) / 20.0)
+
+    # 適用
+    if waveform.dim() == 2:
+        return waveform * gain.unsqueeze(0).unsqueeze(-1)
+    else:
+        return waveform * gain
+
 def loudness_normalize(waveform: torch.Tensor, sr: int, target_lufs: float) -> torch.Tensor:
     """Normalize waveform to target LUFS per EBU R128."""
-    audio = waveform.squeeze().cpu().numpy().astype(float)
-    meter = pyln.Meter(sr)
-    current = meter.integrated_loudness(audio)
-    normalized = pyln.normalize.loudness(audio, current, target_lufs)
-    return torch.from_numpy(normalized).unsqueeze(0).type_as(waveform)
-
+    if pyln is not None:
+        audio = waveform.squeeze().cpu().numpy().astype(float)
+        meter = pyln.Meter(sr)
+        current = meter.integrated_loudness(audio)
+        normalized = pyln.normalize.loudness(audio, current, target_lufs)
+        return torch.from_numpy(normalized).unsqueeze(0).type_as(waveform)
+    return loudness_normalize_bs1770(waveform, sr, target_lufs=target_lufs)
 
 def process_utterance(
     row: pd.Series,
