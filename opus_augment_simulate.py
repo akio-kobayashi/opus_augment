@@ -1,6 +1,6 @@
 import math
 from pathlib import Path
-
+import random
 import numpy as np
 import torch
 import torchaudio
@@ -85,7 +85,7 @@ class OpusAugment(torch.nn.Module):
 
     def _select_bitrate(self, bps: int) -> int:
         if bps == 0:
-            return np.random.randint(self.min_bps, self.max_bps)
+            return random.randint(self.min_bps, self.max_bps)
         return bps
 
     def _bps_to_rate(self, bps: int) -> int:
@@ -122,7 +122,7 @@ class OpusAugment(torch.nn.Module):
         received: np.ndarray | None,
     ) -> np.ndarray:
         if plr < 0:
-            plr = np.random.uniform(self.min_plr, self.max_plr)
+            plr = random.uniform(self.min_plr, self.max_plr)            
         if received is None:
             model = GilbertElliotModel(plr=plr)
             received = model.simulate(num_pkts)
@@ -155,13 +155,13 @@ class OpusAugment(torch.nn.Module):
                 if self.loss_behavior == "plc":
                     # PLC を常に実行
                     out = dec.decode(None)
-                elif self.loss_behavior == "plc" and np.random.rand() < self.fec_probability:
+                elif self.loss_behavior == "plc" and random.rand() < self.fec_probability:
                     # FEC があるなら試す場合
                     out = dec.decode(pkt, decode_fec=True)
                 elif self.loss_behavior == "zero":
                     out = b"\x00" * frame_bytes
                 elif self.loss_behavior == "noise":
-                    noise = (np.random.randn(frame_samples) * 0.02).astype(np.float32)
+                    noise = (random.randn(frame_samples) * 0.02).astype(np.float32)
                     decoded_buf.append(noise)
                     continue
                 else:
