@@ -13,9 +13,9 @@ class OpusAugment(torch.nn.Module):
     Args:
         sample_rate: Original sample rate (Hz).
         frame_duration: Frame length in ms.
-        min_bps, max_bps: Bitrate range (bps).
+        min_bps, max_b1ps: Bitrate range (bps).
         min_packet_loss_rate, max_packet_loss_rate: PLR range.
-        decode_missing_rate: FEC/PLC decode rate for lost packets.
+        fec_probability: FEC/PLC decode rate for lost packets.
     """
     def __init__(
         self,
@@ -25,7 +25,7 @@ class OpusAugment(torch.nn.Module):
         max_bps: int,
         min_packet_loss_rate: float,
         max_packet_loss_rate: float,
-        decode_missing_rate: float = 0.0,
+        fec_probability: float = 1.0,
         loss_behavior: str = "plc",
     ):
         super().__init__()
@@ -35,7 +35,7 @@ class OpusAugment(torch.nn.Module):
         self.max_bps = max_bps
         self.min_plr = min_packet_loss_rate
         self.max_plr = max_packet_loss_rate
-        self.decode_missing_rate = decode_missing_rate
+        self.fec_probability = fec_probability
         self.channels = 1
         self.bytes_per_sample = 2
         self.loss_behavior = loss_behavior  # "plc", "zero", or "noise"
@@ -139,7 +139,7 @@ class OpusAugment(torch.nn.Module):
         frame_bytes = frame_samples * self.bytes_per_sample * self.channels
         decoded_buf = []
 
-        for idx in range(len(received)):
+        for idx, recv in enumerate(received):
             start = idx * frame_bytes
             chunk = data[start:start + frame_bytes]
             if len(chunk) < frame_bytes:
@@ -147,11 +147,17 @@ class OpusAugment(torch.nn.Module):
 
             pkt = enc.encode(chunk)
 
-            if received[idx]:
+            if recv:
+                # 正常受信
                 out = dec.decode(pkt)
             else:
-                if self.loss_behavior == "plc" and np.random.rand() < self.decode_missing_rate:
-                    out = dec.decode(pkt)  # Opusによる復元（前回のパケット等から推定）
+                # パケットロス時
+                if self.loss_behavior == "plc":
+                    # PLC を常に実行
+                    out = dec.decode(None)
+                elif self.loss_behavior == "plc" and np.random.rand() < self.fec_probability:
+                    # FEC があるなら試す場合
+                    out = dec.decode(pkt, decode_fec=True)
                 elif self.loss_behavior == "zero":
                     out = b"\x00" * frame_bytes
                 elif self.loss_behavior == "noise":
@@ -159,14 +165,13 @@ class OpusAugment(torch.nn.Module):
                     decoded_buf.append(noise)
                     continue
                 else:
-                    out = b"\x00" * frame_bytes  # デフォルトはゼロ
+                    out = b"\x00" * frame_bytes
 
             decoded_buf.append(
                 np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32767
             )
 
         return np.concatenate(decoded_buf)
-
 
     def _fix_length(self, wav: torch.Tensor, length: int) -> torch.Tensor:
         if wav.shape[-1] < length:
