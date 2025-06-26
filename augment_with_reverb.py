@@ -9,6 +9,7 @@ import yaml
 import pyloudnorm as pyln
 
 from opus_augment.opus_augment_simulate import OpusAugment
+from opus_augment.reverb_augment import ReverbAugment
 
     
 def compute_spectrogram_db(
@@ -70,9 +71,18 @@ def load_config(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+def init_reverb_funcs(reverb_cfg: dict) -> tuple[ReverbAugment, ReverbAugment]:
+    """Initialize reverb functions for source and interference with zero jitter."""
+    params = reverb_cfg['params']
+    zero_range = reverb_cfg.get('loc_range', [0, 0, 0]) if 'loc_range' in reverb_cfg else [0, 0, 0]
+    src_cfg = {**params, 'source_loc': reverb_cfg['source_loc'], 'loc_range': zero_range}
+    int_cfg = {**params, 'source_loc': reverb_cfg['noise_loc'],  'loc_range': zero_range}
+    return ReverbAugment(**src_cfg), ReverbAugment(**int_cfg)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulate augmented mixtures: source+interference, then ambient noise mix"
+        description="Simulate augmented mixtures: source+interference reverb, then ambient noise mix"
     )
     parser.add_argument('--speech-csv', type=Path, required=True,
                         help='CSV with columns [source, speaker, index]')
@@ -88,6 +98,8 @@ def parse_args() -> argparse.Namespace:
                         help='Directory to save outputs')
     parser.add_argument('--config', type=Path, required=True,
                         help='YAML config for augment parameters')
+    parser.add_argument('--rt60', type=float, default=0.0,
+                        help='Fixed RT60; <=0 for random in range')
     parser.add_argument('--bps', type=int, default=0,
                         help='Opus bitrate (bps), 0 for random')
     parser.add_argument('--packet_loss_rate', type=float, default=-1.0,
@@ -110,12 +122,14 @@ def process_utterance(
     row: pd.Series,
     interf_row: pd.Series | None,
     env_row: pd.Series | None,
+    reverb_src: ReverbAugment,
+    reverb_intf: ReverbAugment,
     opus: OpusAugment,
     cfg: dict,
     args: argparse.Namespace,
     out_dir: Path
 ) -> dict:
-    """Process a single utterance: mix interference, then environmental noise, and opus augment."""
+    """Process a single utterance: add reverb, mix interference, then environmental noise, and opus augment."""
     augment_cfg = cfg['augment']
 
     # determine use flags and snrs
@@ -146,7 +160,14 @@ def process_utterance(
           s0 = np.random.randint(0, max_start)
           e0 = s0 + source.shape[-1]
           interf = interf[:, s0:e0]
-        mix1 = mix_signals(source, interf, snr_int)
+        # apply reverb
+        rt60_val = args.rt60 if args.rt60 > 0 else None
+        if rt60_val:
+            src_rvb = reverb_src(source, rt60_val)[0]
+            int_rvb = reverb_intf(interf, rt60_val)[0]
+            mix1 = mix_signals(src_rvb, int_rvb, snr_int)
+        else:
+            mix1 = mix_signals(source, interf, snr_int)
     else:
         mix1 = source
         s0 = e0 = None
@@ -221,6 +242,8 @@ def main():
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Initialize modules
+    reverb_src, reverb_intf = init_reverb_funcs(cfg['augment']['reverb'])
     opus = OpusAugment(**cfg['augment']['opus'])
 
     # Load CSVs
@@ -239,7 +262,8 @@ def main():
         env_row    = env_sel.loc[idx] if env_sel   is not None else None
         base_row   = df_mixed.loc[idx] if df_mixed is not None else row
         rec = process_utterance(
-            base_row, interf_row, env_row, opus,
+            base_row, interf_row, env_row,
+            reverb_src, reverb_intf, opus,
             cfg, args, out_dir
         )
         records.append(rec)
