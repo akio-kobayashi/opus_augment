@@ -11,7 +11,38 @@ import pyloudnorm as pyln
 from opus_augment.opus_augment_simulate import OpusAugment
 from opus_augment.reverb_augment import ReverbAugment
 
+    
+def compute_spectrogram_db(
+    waveform: torch.Tensor,
+    n_fft: int = 1024,
+    hop_length: int = 512,
+    power: float = 2.0,
+    multiplier: float = 10.0,
+    amin: float = 1e-10,
+    db_multiplier: float = 0.0
+) -> torch.Tensor:
+    # 1D → 2D に整形
+    if waveform.dim() == 1:
+        waveform = waveform.unsqueeze(0)  # [1, time]
+        
+    # スペクトログラム計算
+    spec_transform = torchaudio.transforms.Spectrogram(
+        n_fft=n_fft,
+        hop_length=hop_length,
+        power=power
+    )
+    spec = spec_transform(waveform)  # [1, freq_bins, time_frames]
 
+    # dB 変換
+    spec_db = torchaudio.functional.amplitude_to_DB(
+        spec,
+        multiplier=multiplier,
+        amin=amin,
+        db_multiplier=db_multiplier
+    )
+
+    return spec_db.squeeze(0)  # [freq_bins, time_frames]
+            
 def rms(wave: torch.Tensor) -> torch.Tensor:
     """Compute root mean square of a waveform."""
     return torch.sqrt(torch.mean(wave.square()))
@@ -191,6 +222,18 @@ def process_utterance(
         'markov_states': str(state_out)
     }
 
+def simple_mix(source, noise, snr, ref):
+    adj_noise = None
+    if noise.shape[-1] < source.shape[-1]:
+        pad_len = source.shape[-1] - noise.shape[-1]
+        adj_noise = torch.nn.functional.pad(noise, (0, pad_len))
+    else:
+        max_start = noise.shape[-1] - source.shape[-1]
+        s0 = np.random.randint(0, max_start)
+        e0 = s0 + source.shape[-1]
+        adj_noise = noise[:, s0:e0]
+    assert adj_noise is not None
+    return mix_signals(source,  adj_noise, snr, ref)
 
 def main():
     args = parse_args()
