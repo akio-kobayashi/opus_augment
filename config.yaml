@@ -1,0 +1,36 @@
+augment:
+  # Target loudness for source normalization (LUFS)
+  loudness_target: -26.0
+
+  opus:
+    sample_rate: 16000
+    frame_duration: 20
+    min_bps: 6000
+    max_bps: 20000
+    min_packet_loss_rate: 0.0
+    max_packet_loss_rate: 0.3
+    decode_missing_packet_rate: 0.5
+    loss_behavior: "plc"
+    use: true
+
+  reverb:
+    params:
+      sample_rate: 16000
+      min_rt60: 0.2
+      max_rt60: 1.0
+      snr: 60
+      room_size: [4.8, 5.8, 2.5]
+      mic_loc: [0.5, 2.9, 1.0]
+    source_loc: [0.3, 2.9, 1.2]
+    source_loc_range: [0.1, 0.1, 0.1]
+    noise_loc: [3.0, 2.9, 1.2]
+    noise_loc_range: [1.7, 2.0, 0.5]
+    use: true
+
+  interference:
+    use: true           # Apply interference (other speaker) mixing
+    snr: 10             # SNR for source vs interference (dB)
+
+  environment_noise:
+    use: true           # Apply ambient noise mixing
+    snr: 20             # SNR for mixed signal vs environment noise (dB)
