@@ -152,77 +152,7 @@ class OpusAugment(torch.nn.Module):
         decoded = frames.reshape(-1).copy()                          # C 連続バッファ
 
         return decoded
-'''        
-    def _process_frames(
-        self,
-        data: bytes,
-        enc: OpusEncoder,
-        dec: OpusDecoder,
-        received: np.ndarray,
-        frame_samples: int,
-        frame_bytes: int,
-    ) -> np.ndarray:
-
-        decoded_buf, last_frame = [], np.zeros(frame_samples, np.float32)
-
-        for idx, ok in enumerate(received):
-            start = idx * frame_bytes
-            #raw = data[start:start + frame_bytes].ljust(frame_bytes, b"\x00")
-            #pkt = enc.encode(raw, frame_samples)
-            #import array
-            #raw_bytes = data[start : start + frame_bytes].ljust(frame_bytes, b"\x00")
-            #pcm_arr   = array.array("h")                  # 16-bit signed
-            #pcm_arr.frombytes(raw_bytes)                  # bytes → array('h')
-            #pkt = enc.encode(pcm_arr, frame_samples)
-            #raw = data[start : start + frame_bytes].ljust(frame_bytes, b"\x00")
-            #pcm_int16 = np.frombuffer(raw, dtype=np.int16)          # ★ NumPy 配列
-            #pkt = enc.encode(pcm_int16, frame_samples)
-            import ctypes
-            raw = data[start : start + frame_bytes].ljust(frame_bytes, b"\x00")
-            # ctypes の int16 配列を生成（コピーしても 2×800サンプル ≈ 3 KB）
-            pcm_arr = (ctypes.c_int16 * frame_samples).from_buffer_copy(raw)
-            pkt = enc.encode(pcm_arr, frame_samples)            
-
-            if ok:                                    # 正常受信
-                pcm = dec.decode(pkt, frame_samples)
-                frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
-                last_frame = frame
-            else:                                     # Lost frame
-                if self.loss_behavior == "plc":
-                    # FECを試す確率
-                    if random.random() < self.fec_probability:
-                        try:
-                            pcm = dec.decode(pkt, frame_samples, True)  # FEC デコード
-                            frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
-                            last_frame = frame
-                        except opuslib.OpusError:
-                            frame = last_frame              # FEC 失敗→PLC
-                    else:
-                        frame = last_frame                  # PLC
-                elif self.loss_behavior == "zero":
-                    frame = np.zeros(frame_samples, np.float32)
-                elif self.loss_behavior == "noise":
-                    frame = np.random.randn(frame_samples).astype(np.float32) * 0.02
-                else:
-                    frame = np.zeros(frame_samples, np.float32)
-
-            decoded_buf.append(frame)
-
-        # ループの最後に置き換え
-        frames  = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
-        decoded = frames.reshape(-1)                                 # 1-D view
-        return decoded
     
-        #arr = np.array(decoded_buf, dtype=np.float32)      # (N, F) 必ず正形
-        #decoded = arr.reshape(-1).copy()                   # C 連続の 1-D
-        #print(type(decoded), decoded.dtype,
-        #      decoded.shape, decoded.flags['C_CONTIGUOUS'], decoded.flags['WRITEABLE'])
-        #return decoded                                     # ← これを返す    
-            
-        #frames = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
-        #decoded = np.ascontiguousarray(frames.reshape(-1))          # (N*F,)
-        #return decoded
-'''    
     # Pad / trim
     @staticmethod
     def _fix_length(x: torch.Tensor, length: int):
