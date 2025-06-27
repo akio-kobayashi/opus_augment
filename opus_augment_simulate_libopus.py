@@ -133,7 +133,7 @@ class OpusAugment(torch.nn.Module):
             else:
                 if self.loss_behavior == "plc":
                     # FEC を試行
-                    use_fec = np.random.rand() < self.fec_probability
+                    use_fec = random.random() < self.fec_probability
                     try:
                         pcm = dec.decode(pkt, frame_samples, use_fec)
                         frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
@@ -143,7 +143,9 @@ class OpusAugment(torch.nn.Module):
                 elif self.loss_behavior == "zero":
                     frame = np.zeros(frame_samples, np.float32)
                 elif self.loss_behavior == "noise":
-                    frame = np.random.randn(frame_samples).astype(np.float32) * 0.02
+                    frame = (torch.randn(frame_samples, dtype=torch.float32)
+                             .mul_(0.02)                                   # in-place *
+                             .numpy())                    
                 else:
                     frame = np.zeros(frame_samples, np.float32)
             decoded_buf.append(frame)
