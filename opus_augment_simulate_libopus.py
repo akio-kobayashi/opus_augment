@@ -63,7 +63,8 @@ class OpusAugment(torch.nn.Module):
         )
 
         # 6) 元サンプリングレートに戻す
-        dec_tensor = torch.from_numpy(decoded).unsqueeze(0)
+        #dec_tensor = torch.from_numpy(decoded).unsqueeze(0)
+        dec_tensor = torch.as_tensor(decoded.copy(), dtype=torch.float32).unsqueeze(0)
         dec_tensor = torchaudio.functional.resample(dec_tensor, target_sr, self.sample_rate)
 
         # 長さそろえ
@@ -142,11 +143,15 @@ class OpusAugment(torch.nn.Module):
             decoded_buf.append(frame)
 
         # ループの最後に置き換え
-        arr = np.array(decoded_buf, dtype=np.float32)      # (N, F) 必ず正形
-        decoded = arr.reshape(-1).copy()                   # C 連続の 1-D
-        print(type(decoded), decoded.dtype,
-              decoded.shape, decoded.flags['C_CONTIGUOUS'], decoded.flags['WRITEABLE'])
-        return decoded                                     # ← これを返す    
+        frames  = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
+        decoded = frames.reshape(-1)                                 # 1-D view
+        return decoded
+    
+        #arr = np.array(decoded_buf, dtype=np.float32)      # (N, F) 必ず正形
+        #decoded = arr.reshape(-1).copy()                   # C 連続の 1-D
+        #print(type(decoded), decoded.dtype,
+        #      decoded.shape, decoded.flags['C_CONTIGUOUS'], decoded.flags['WRITEABLE'])
+        #return decoded                                     # ← これを返す    
             
         #frames = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
         #decoded = np.ascontiguousarray(frames.reshape(-1))          # (N*F,)
