@@ -82,11 +82,11 @@ class OpusAugment(torch.nn.Module):
         return 8000 if bps < 12_000 else 12_000 if bps < 15_000 else 16_000
 
     def _build_codec(self, sr: int, bps: int):
-        max_bytes = int(bps / (1000 * self.frame_duration * 8))
+        #max_bytes = int(bps / (1000 * self.frame_duration * 8))
 
         enc = OpusEncoder(sr, self.channels, application="audio")
         enc.bitrate = bps
-        enc.set_max_payload_bytes(max_bytes)
+        #enc.set_max_payload_bytes(max_bytes)
 
         dec = OpusDecoder(sr, self.channels)
         return enc, dec
