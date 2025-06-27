@@ -141,7 +141,10 @@ class OpusAugment(torch.nn.Module):
 
             decoded_buf.append(frame)
 
-        return np.concatenate(decoded_buf)
+        #return np.concatenate(decoded_buf)
+        return np.ascontiguousarray(
+            np.stack(decoded_buf, axis=0).reshape(-1).astype(np.float32)
+        )
 
     # Pad / trim
     @staticmethod
