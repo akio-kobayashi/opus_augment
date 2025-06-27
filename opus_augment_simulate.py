@@ -138,6 +138,8 @@ class OpusAugment(torch.nn.Module):
     ) -> np.ndarray:
         frame_bytes = frame_samples * self.bytes_per_sample * self.channels
         decoded_buf = []
+        # 最後に復号できたフレームを保存（PLC用）
+        last_frame: np.ndarray = np.zeros((frame_samples,), dtype=np.float32)
 
         for idx, recv in enumerate(received):
             start = idx * frame_bytes
@@ -148,28 +150,31 @@ class OpusAugment(torch.nn.Module):
             pkt = enc.encode(chunk)
 
             if recv:
-                # 正常受信
                 out = dec.decode(pkt)
+                frame = np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32767
+                last_frame = frame
             else:
-                # パケットロス時
                 if self.loss_behavior == "plc":
-                    # PLC を常に実行
-                    out = dec.decode(None)
-                elif self.loss_behavior == "plc" and random.random() < self.fec_probability:
-                    # FEC があるなら試す場合
-                    out = dec.decode(pkt, decode_fec=True)
+                    if random.random() < self.fec_probability:
+                        out = dec.decode(pkt, decode_fec=True)
+                        frame = np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32767
+                        last_frame = frame
+                    else:
+                        frame = last_frame
                 elif self.loss_behavior == "zero":
-                    out = b"\x00" * frame_bytes
+                    frame = np.zeros((frame_samples,), dtype=np.float32)
                 elif self.loss_behavior == "noise":
-                    noise = (random.randn(frame_samples) * 0.02).astype(np.float32)
+                    # ホワイトノイズ
+                    noise = (np.random.randn(frame_samples) * 0.02).astype(np.float32)
                     decoded_buf.append(noise)
                     continue
                 else:
-                    out = b"\x00" * frame_bytes
-
-            decoded_buf.append(
-                np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32767
-            )
+                    # それ以外はゼロで埋め
+                    frame = np.zeros((frame_samples,), dtype=np.float32)
+            decoded_buf.append(frame)
+            #decoded_buf.append(
+            #    np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32767
+            #)
 
         return np.concatenate(decoded_buf)
 
