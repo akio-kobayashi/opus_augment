@@ -5,6 +5,8 @@ import math, random, numpy as np, torch, torchaudio
 from opuslib import Encoder as OpusEncoder
 from opuslib import Decoder as OpusDecoder
 from opus_augment.packet_loss_simulator import GilbertElliotModel
+import ctypes
+import opuslib                          # OpusError 用
 
 class OpusAugment(torch.nn.Module):
     """
@@ -101,6 +103,57 @@ class OpusAugment(torch.nn.Module):
     # -------------------------------------------- #
 
     def _process_frames(
+            self,
+            data: bytes,
+            enc: OpusEncoder,
+            dec: OpusDecoder,
+            received: np.ndarray,
+            frame_samples: int,
+            frame_bytes: int,
+    ) -> np.ndarray:
+        decoded_buf = []
+        last_frame  = np.zeros(frame_samples, np.float32)
+
+        PcmArray = ctypes.c_int16 * frame_samples      # <class '_ctypes.Array[c_short]'>
+        # これを毎フレーム使い回す
+
+        for idx, ok in enumerate(received):
+            # ---------- 1) bytes → ctypes.int16[] ----------
+            start = idx * frame_bytes
+            raw   = data[start : start + frame_bytes].ljust(frame_bytes, b"\x00")
+            pcm_ptr = PcmArray.from_buffer_copy(raw)   # 必ず frame_samples 要素
+            # ---------- 2) エンコード ----------
+            pkt = enc.encode(pcm_ptr, frame_samples)
+
+            # ---------- 3) デコード ----------
+            if ok:
+                pcm = dec.decode(pkt, frame_samples)
+                frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
+                last_frame = frame
+            else:
+                if self.loss_behavior == "plc":
+                    # FEC を試行
+                    use_fec = np.random.rand() < self.fec_probability
+                    try:
+                        pcm = dec.decode(pkt, frame_samples, use_fec)
+                        frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
+                        last_frame = frame
+                    except opuslib.OpusError:
+                        frame = last_frame            # FEC 失敗 → PLC
+                elif self.loss_behavior == "zero":
+                    frame = np.zeros(frame_samples, np.float32)
+                elif self.loss_behavior == "noise":
+                    frame = np.random.randn(frame_samples).astype(np.float32) * 0.02
+                else:
+                    frame = np.zeros(frame_samples, np.float32)
+            decoded_buf.append(frame)
+        # ---------- 4) list → 1-D contiguous float32 ----------
+        frames  = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
+        decoded = frames.reshape(-1).copy()                          # C 連続バッファ
+
+        return decoded
+'''        
+    def _process_frames(
         self,
         data: bytes,
         enc: OpusEncoder,
@@ -169,7 +222,7 @@ class OpusAugment(torch.nn.Module):
         #frames = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
         #decoded = np.ascontiguousarray(frames.reshape(-1))          # (N*F,)
         #return decoded
-    
+'''    
     # Pad / trim
     @staticmethod
     def _fix_length(x: torch.Tensor, length: int):
