@@ -141,11 +141,10 @@ class OpusAugment(torch.nn.Module):
 
             decoded_buf.append(frame)
 
-        #return np.concatenate(decoded_buf)
-        return np.ascontiguousarray(
-            np.stack(decoded_buf, axis=0).reshape(-1).astype(np.float32)
-        )
-
+        frames = np.stack(decoded_buf, axis=0).astype(np.float32)   # (N, F)
+        decoded = np.ascontiguousarray(frames.reshape(-1))          # (N*F,)
+        return decoded
+    
     # Pad / trim
     @staticmethod
     def _fix_length(x: torch.Tensor, length: int):
