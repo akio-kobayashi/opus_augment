@@ -114,7 +114,7 @@ class OpusAugment(torch.nn.Module):
         for idx, ok in enumerate(received):
             start = idx * frame_bytes
             raw = data[start:start + frame_bytes].ljust(frame_bytes, b"\x00")
-            pkt = enc.encode(raw, frame_size=frame_samples, max_data_bytes=127)
+            pkt = enc.encode(raw, frame_samples, 127)
 
             if ok:                                    # 正常受信
                 pcm = dec.decode(pkt)
