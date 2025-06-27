@@ -117,7 +117,7 @@ class OpusAugment(torch.nn.Module):
             pkt = enc.encode(raw, frame_samples)
 
             if ok:                                    # 正常受信
-                pcm = dec.decode(pkt)
+                pcm = dec.decode(pkt, frame_samples)
                 frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
                 last_frame = frame
             else:                                     # Lost frame
@@ -125,7 +125,7 @@ class OpusAugment(torch.nn.Module):
                     # FECを試す確率
                     if random.random() < self.fec_probability:
                         try:
-                            pcm = dec.decode(pkt, fec=True)  # FEC デコード
+                            pcm = dec.decode(pkt, frame_samples, True)  # FEC デコード
                             frame = np.frombuffer(pcm, np.int16).astype(np.float32) / 32767
                             last_frame = frame
                         except opuslib.OpusError:
