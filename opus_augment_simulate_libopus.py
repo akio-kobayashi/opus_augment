@@ -121,9 +121,14 @@ class OpusAugment(torch.nn.Module):
             #pcm_arr   = array.array("h")                  # 16-bit signed
             #pcm_arr.frombytes(raw_bytes)                  # bytes → array('h')
             #pkt = enc.encode(pcm_arr, frame_samples)
+            #raw = data[start : start + frame_bytes].ljust(frame_bytes, b"\x00")
+            #pcm_int16 = np.frombuffer(raw, dtype=np.int16)          # ★ NumPy 配列
+            #pkt = enc.encode(pcm_int16, frame_samples)
+            import ctypes
             raw = data[start : start + frame_bytes].ljust(frame_bytes, b"\x00")
-            pcm_int16 = np.frombuffer(raw, dtype=np.int16)          # ★ NumPy 配列
-            pkt = enc.encode(pcm_int16, frame_samples)
+            # ctypes の int16 配列を生成（コピーしても 2×800サンプル ≈ 3 KB）
+            pcm_arr = (ctypes.c_int16 * frame_samples).from_buffer_copy(raw)
+            pkt = enc.encode(pcm_arr, frame_samples)            
 
             if ok:                                    # 正常受信
                 pcm = dec.decode(pkt, frame_samples)
