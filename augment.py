@@ -11,7 +11,7 @@ try:
 except Exception:
     pyln = None
     
-from opus_augment.opus_augment_simulate import OpusAugment
+from opus_augment.opus_augment_simulate_opuslib import OpusAugment
 
     
 def compute_spectrogram_db(
